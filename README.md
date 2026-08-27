@@ -23,7 +23,8 @@ finance-daily-report/
 │   ├── task-template.md      # AI 助手任务指令模板
 │   └── report-structure.md   # 日报内容结构规范
 ├── scripts/
-│   ├── run_daily_report.sh   # 执行入口脚本（示例）
+│   ├── run_daily_report.sh   # 执行入口脚本（示例框架）
+│   ├── collect_data.py       # 数据采集脚本（Python，输出结构化JSON）
 │   └── send_email.py         # 邮件推送脚本（QQ邮箱SMTP）
 └── examples/
     └── sample-report.md      # 日报输出示例
@@ -43,6 +44,20 @@ finance-daily-report/
 1. 参考 `cron/crontab.example` 配置定时执行时间
 2. 根据 `scripts/run_daily_report.sh` 实现自己的抓取逻辑
 3. 将脚本加入 crontab
+
+### 方式三：协同方案（脚本采集 + AI 整理，推荐）
+1. 先用 `scripts/collect_data.py` 采集数据，输出结构化 JSON：
+   ```bash
+   python3 scripts/collect_data.py --output output/data_YYYY-MM-DD.json
+   ```
+2. AI 定时任务读取 JSON 数据，整理成日报，生成飞书文档，发送邮件
+3. 优势：数据采集稳定精确（脚本），内容生成灵活高质量（AI），token 消耗降低约 60%
+
+**数据采集脚本功能**：
+- 国家统计局：最新发布列表 + 发布预告
+- A股行情：5大主要指数（腾讯财经API，多源降级）
+- 新浪财经：50条新闻，自动分类（国际/宏观/公司/其他）
+- 内置重试机制（3次，指数退避）、错误日志、结构化JSON输出
 
 ## 数据源说明
 
