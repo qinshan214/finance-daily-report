@@ -44,6 +44,7 @@ def get_config(args):
         'summary_stats': args.summary_stats or '（定时任务执行时自动填充）',
         'summary_market': args.summary_market or '（定时任务执行时自动填充）',
         'summary_new': args.summary_news or '（定时任务执行时自动填充）',
+        'full_content': args.full_content or '',
     }
 
     if not config['user']:
@@ -76,9 +77,144 @@ def format_summary_items(text):
     return '\n                '.join(items)
 
 
+def markdown_to_html(text):
+    """简单的 Markdown 转 HTML（支持标题、列表、粗体、换行）"""
+    import re
+    lines = text.strip().split('\n')
+    html_lines = []
+    in_list = False
+    for line in lines:
+        line = line.rstrip()
+        # 标题
+        if line.startswith('# '):
+            if in_list:
+                html_lines.append('</ul>')
+                in_list = False
+            html_lines.append(f'<h1>{line[2:]}</h1>')
+        elif line.startswith('## '):
+            if in_list:
+                html_lines.append('</ul>')
+                in_list = False
+            html_lines.append(f'<h2>{line[3:]}</h2>')
+        elif line.startswith('### '):
+            if in_list:
+                html_lines.append('</ul>')
+                in_list = False
+            html_lines.append(f'<h3>{line[4:]}</h3>')
+        # 列表项
+        elif line.startswith('- ') or line.startswith('* '):
+            if not in_list:
+                html_lines.append('<ul>')
+                in_list = True
+            content = line[2:]
+            # 粗体
+            content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content)
+            html_lines.append(f'<li>{content}</li>')
+        # 空行
+        elif line == '':
+            if in_list:
+                html_lines.append('</ul>')
+                in_list = False
+            html_lines.append('<br>')
+        # 普通段落
+        else:
+            if in_list:
+                html_lines.append('</ul>')
+                in_list = False
+            content = line
+            content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content)
+            html_lines.append(f'<p>{content}</p>')
+    if in_list:
+        html_lines.append('</ul>')
+    return '\n'.join(html_lines)
+
+
 def build_email_content(config):
     """构建邮件 HTML 内容"""
     date = config['date']
+
+    # 降级模式：发送完整日报内容
+    if config['full_content']:
+        body_html = markdown_to_html(config['full_content'])
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+            padding: 24px;
+            border-radius: 8px 8px 0 0;
+            text-align: center;
+        }}
+        .header h1 {{
+            margin: 0;
+            font-size: 24px;
+        }}
+        .header .date {{
+            margin-top: 8px;
+            font-size: 14px;
+            opacity: 0.9;
+        }}
+        .warning {{
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin: 16px 0;
+            color: #856404;
+            font-size: 14px;
+        }}
+        .content {{
+            background: #fff;
+            border: 1px solid #e8e8e8;
+            border-top: none;
+            padding: 24px;
+            border-radius: 0 0 8px 8px;
+        }}
+        .content h1 {{ font-size: 22px; color: #2c3e50; border-bottom: 2px solid #e74c3c; padding-bottom: 8px; }}
+        .content h2 {{ font-size: 18px; color: #34495e; margin-top: 24px; }}
+        .content h3 {{ font-size: 16px; color: #34495e; margin-top: 16px; }}
+        .content ul {{ padding-left: 20px; }}
+        .content li {{ margin-bottom: 6px; font-size: 14px; }}
+        .content p {{ font-size: 14px; margin: 8px 0; }}
+        .footer {{
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            margin-top: 24px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>每日财经日报（完整内容）</h1>
+        <div class="date">{date}</div>
+    </div>
+    <div class="content">
+        <div class="warning">
+            ⚠️ 注意：飞书文档创建失败，此为降级模式发送的完整日报内容。
+        </div>
+        {body_html}
+    </div>
+    <div class="footer">
+        本邮件由每日财经日报自动化系统自动发送（降级模式）<br>
+        数据来源：国家统计局、同花顺、东方财富、新浪财经
+    </div>
+</body>
+</html>"""
+        return html
+
+    # 正常模式：摘要 + 飞书文档链接
     doc_url = config['doc_url']
 
     stats_items = format_summary_items(config['summary_stats'])
@@ -233,6 +369,7 @@ def main():
     parser.add_argument('--summary-stats', help='国家统计局板块摘要（多行文本，每行一条）')
     parser.add_argument('--summary-market', help='A股行情板块摘要（多行文本，每行一条）')
     parser.add_argument('--summary-news', help='财经新闻板块摘要（多行文本，每行一条）')
+    parser.add_argument('--full-content', help='完整日报Markdown内容（降级模式使用，飞书文档失败时发送完整内容）')
 
     args = parser.parse_args()
     config = get_config(args)
