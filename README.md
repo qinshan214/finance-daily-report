@@ -24,7 +24,9 @@ finance-daily-report/
 │   └── report-structure.md   # 日报内容结构规范
 ├── scripts/
 │   ├── run_daily_report.sh   # 执行入口脚本（示例框架）
-│   ├── collect_data.py       # 数据采集脚本（Python，输出结构化JSON）
+│   ├── collect_data.py       # 数据采集脚本（5大模块，输出JSON）
+│   ├── generate_report.py    # 日报生成脚本（AI降级模式，Markdown）
+│   ├── run_daily.py          # 主控制脚本（纯脚本保底模式，全流程）
 │   └── send_email.py         # 邮件推送脚本（QQ邮箱SMTP）
 └── examples/
     └── sample-report.md      # 日报输出示例
@@ -53,11 +55,22 @@ finance-daily-report/
 2. AI 定时任务读取 JSON 数据，整理成日报，生成飞书文档，发送邮件
 3. 优势：数据采集稳定精确（脚本），内容生成灵活高质量（AI），token 消耗降低约 60%
 
-**数据采集脚本功能**：
+**数据采集脚本功能（5大模块）**：
 - 国家统计局：最新发布列表 + 发布预告
 - A股行情：5大主要指数（腾讯财经API，多源降级）
-- 新浪财经：50条新闻，自动分类（国际/宏观/公司/其他）
-- 内置重试机制（3次，指数退避）、错误日志、结构化JSON输出
+- 行业板块：49个行业板块涨跌幅 + 领涨股（新浪财经API）
+- 全球市场：美股/黄金/原油/汇率（东方财富API）
+- 财经新闻：50条新闻 + 4分类（国际/宏观/公司/其他）
+
+### 方式四：纯脚本保底模式（AI不可用时）
+完全不依赖 AI，0 token 消耗，10秒完成全流程：
+```bash
+SMTP_PASSWORD="你的授权码" python3 scripts/run_daily.py --date YYYY-MM-DD
+```
+执行流程：脚本采集数据 → 生成基础版日报 → 发送邮件。
+- 三级容错：数据采集失败→使用缓存→发送极简通知
+- 完整执行日志和状态记录
+- 支持配置文件自定义邮箱和输出路径
 
 ## 数据源说明
 

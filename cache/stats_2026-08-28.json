@@ -1,0 +1,96 @@
+{
+  "source": "国家统计局",
+  "source_url": "https://www.stats.gov.cn/",
+  "status": "success",
+  "latest_releases": [
+    {
+      "title": "2025年经济发展新动能指数增长12.5%",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260827_1965129.html",
+      "date": ""
+    },
+    {
+      "title": "国家统计局统计科学研究所所长闾海琪解读2025年我国经济发展新动能指数",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260827_1965130.html",
+      "date": ""
+    },
+    {
+      "title": "2026年1—7月份全国规模以上工业企业利润增长17.6%",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260827_1965126.html",
+      "date": ""
+    },
+    {
+      "title": "2026年8月中旬流通领域重要生产资料市场价格变动情况",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260821_1965093.html",
+      "date": ""
+    },
+    {
+      "title": "国家统计局关于2026年早稻产量数据的公告",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260821_1965086.html",
+      "date": ""
+    },
+    {
+      "title": "国家统计局新闻发言人就2026年7月份国民经济运行情况答记者问",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260817_1965064.html",
+      "date": ""
+    },
+    {
+      "title": "国家统计局工业司首席统计师孙晓解读2026年7月份工业生产数据",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260817_1965049.html",
+      "date": ""
+    },
+    {
+      "title": "国家统计局投资司张刚解读2026年1—7月份投资数据",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260817_1965048.html",
+      "date": ""
+    },
+    {
+      "title": "国家统计局贸经司首席统计师袁彦解读1—7月份消费市场数据",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260817_1965047.html",
+      "date": ""
+    },
+    {
+      "title": "1—7月份国民经济保持总体平稳、向新向优发展态势",
+      "url": "https://www.stats.gov.cn/sj/zxfbhjd/202608/t20260817_1965056.html",
+      "date": ""
+    },
+    {
+      "title": "涉外统计调查机构资格认定",
+      "url": "https://www.stats.gov.cn/fw/jgrd/",
+      "date": ""
+    },
+    {
+      "title": "部门统计调查项目",
+      "url": "https://www.stats.gov.cn/fw/bmdcxmsp/",
+      "date": ""
+    },
+    {
+      "title": "地方统计调查项目",
+      "url": "https://www.stats.gov.cn/fw/dftjxmgl/",
+      "date": ""
+    },
+    {
+      "title": "中国统计资料馆预约",
+      "url": "https://www.stats.gov.cn/zgzlg/sy/",
+      "date": ""
+    },
+    {
+      "title": "统计专业技术资格考试",
+      "url": "https://www.stats.gov.cn/fw/tjzyjszgks/",
+      "date": ""
+    }
+  ],
+  "upcoming": [
+    {
+      "event": "每月最后一天/次月首日：PMI月度报告"
+    },
+    {
+      "event": "每月9日左右：CPI/PPI月度报告"
+    },
+    {
+      "event": "每月15日左右：工业增加值/固定资产投资/社会消费品零售总额"
+    },
+    {
+      "event": "每月27日左右：工业企业利润数据"
+    }
+  ]
+}
