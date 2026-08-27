@@ -576,7 +576,8 @@ def fetch_global_market():
     def try_tencent():
         symbols = "usDJI,usIXIC,usINX,hf_GC,hf_CL,fx_susdcnh"
         url = f"https://qt.gtimg.cn/q={symbols}"
-        response = fetch_with_retry(url, timeout=(8, 15), retries=2, encoding='gbk')
+        headers = {"Referer": "https://gu.qq.com/"}
+        response = fetch_with_retry(url, headers=headers, timeout=(8, 15), retries=2, encoding='gbk')
         if response is None:
             return None
         name_map = {
@@ -586,29 +587,36 @@ def fetch_global_market():
         markets = {}
         for line in response.text.split(';'):
             line = line.strip()
-            if not line or '~' not in line:
+            if not line or '~' not in line or '=' not in line:
                 continue
-            parts = line.split('~')
-            if len(parts) < 5:
-                continue
-            symbol = parts[0].split('=')[-1].strip('"') if '=' in parts[0] else parts[0]
+            # 解析 v_usDJI="200~道琼斯~..." 格式
+            var_part, val_part = line.split('=', 1)
+            # 提取symbol：v_usDJI -> usDJI
+            symbol = var_part.replace('var ', '').replace('v_', '').strip()
+            # 去掉值部分的引号
+            val_part = val_part.strip().strip('"')
             name = name_map.get(symbol)
             if not name:
                 continue
+            parts = val_part.split('~')
+            if len(parts) < 33:
+                continue
             try:
                 price = float(parts[3]) if len(parts) > 3 else 0
-                change = float(parts[4]) if len(parts) > 4 else 0
-                change_pct = float(parts[5]) if len(parts) > 5 else 0
-                markets[name] = {"code": symbol, "price": price, "change": change, "change_pct": change_pct}
+                # 腾讯财经格式：parts[31]=涨跌额, parts[32]=涨跌幅
+                change = float(parts[31]) if len(parts) > 31 else 0
+                change_pct = float(parts[32]) if len(parts) > 32 else 0
+                if price > 0:
+                    markets[name] = {"code": symbol, "price": price, "change": change, "change_pct": change_pct}
             except (ValueError, IndexError):
                 continue
         return markets if markets else None
 
-    # 按优先级尝试各数据源
+    # 按优先级尝试各数据源（腾讯财经优先，因为当前环境东方财富和新浪财经可能无法访问）
     sources = [
+        ("腾讯财经", try_tencent),
         ("东方财富", try_eastmoney),
         ("新浪财经", try_sina),
-        ("腾讯财经", try_tencent),
     ]
 
     for source_name, source_func in sources:

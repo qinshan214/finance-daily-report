@@ -269,6 +269,25 @@ def print_recommendation():
 # ============================================
 # 主函数
 # ============================================
+def reset_stats():
+    """重置模式统计数据"""
+    default_stats = {
+        "ai": {"success": 0, "failed": 0, "total": 0},
+        "script": {"success": 0, "failed": 0, "total": 0},
+        "degradations": 0,
+        "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    save_json(MODE_STATS_FILE, default_stats)
+
+    # 同时清空模式切换日志
+    save_json(MODE_LOG_FILE, {"events": []})
+
+    print("✅ 模式统计数据已重置")
+    print("   - 模式统计已清零")
+    print("   - 模式切换日志已清空")
+    print("   - 连续失败次数已重置")
+
+
 def main():
     parser = argparse.ArgumentParser(description='模式控制器（自动化模式切换）')
     parser.add_argument('--mode', choices=['ai', 'script'], help='运行模式')
@@ -278,7 +297,13 @@ def main():
     parser.add_argument('--reason', help='失败/降级原因')
     parser.add_argument('--query', action='store_true', help='查询当前推荐模式')
     parser.add_argument('--stats', action='store_true', help='查看模式切换统计')
+    parser.add_argument('--reset', action='store_true', help='重置模式统计数据（生产环境部署时使用）')
     args = parser.parse_args()
+
+    # 重置统计
+    if args.reset:
+        reset_stats()
+        return
 
     # 查询模式
     if args.query:
