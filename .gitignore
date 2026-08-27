@@ -1,0 +1,41 @@
+# 操作系统/编辑器文件
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 输出文件（日报生成的临时文件）
+output/
+*.xml
+*.draft
+
+# Python（如有）
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Node（如有）
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

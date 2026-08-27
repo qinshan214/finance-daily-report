@@ -1,0 +1,25 @@
+# crontab 配置示例
+#
+# 使用方式：
+# 1. 编辑 crontab：crontab -e
+# 2. 将下方对应行复制进去（去掉开头的 #）
+# 3. 保存退出，定时任务即生效
+#
+# 字段说明：分 时 日 月 周 命令
+# ============================================
+
+# 方案一：每天 20:00 执行（默认）
+# 0 20 * * * /path/to/finance-daily-report/scripts/run_daily_report.sh >> /path/to/logs/report.log 2>&1
+
+# 方案二：每个交易日 15:30 执行（A股收盘后）
+# 30 15 * * 1-5 /path/to/finance-daily-report/scripts/run_daily_report.sh >> /path/to/logs/report.log 2>&1
+
+# 方案三：每天 18:30 执行
+# 30 18 * * * /path/to/finance-daily-report/scripts/run_daily_report.sh >> /path/to/logs/report.log 2>&1
+
+# ============================================
+# 注意：
+# 1. 请将 /path/to/ 替换为实际的脚本路径
+# 2. 确保脚本有执行权限：chmod +x run_daily_report.sh
+# 3. 日志目录需提前创建：mkdir -p /path/to/logs
+# 4. 本项目推荐通过 AI 助手的定时任务能力执行，crontab 方式需自行实现抓取逻辑
