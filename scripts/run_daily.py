@@ -56,6 +56,10 @@ DEFAULT_CONFIG = {
     "collect_script": os.path.join(SCRIPT_DIR, "collect_data.py"),
     "report_script": os.path.join(SCRIPT_DIR, "generate_report.py"),
     "email_script": os.path.join(SCRIPT_DIR, "send_email.py"),
+    "feishu_script": os.path.join(SCRIPT_DIR, "create_feishu_doc.py"),
+    "enable_feishu": True,
+    "feishu_app_id": "",
+    "feishu_app_secret": "",
 }
 
 
@@ -106,6 +110,10 @@ def load_config(config_path):
         config["email_password"] = os.environ["SMTP_PASSWORD"]
     if os.environ.get("SMTP_USER"):
         config["email_user"] = os.environ["SMTP_USER"]
+    if os.environ.get("FEISHU_APP_ID"):
+        config["feishu_app_id"] = os.environ["FEISHU_APP_ID"]
+    if os.environ.get("FEISHU_APP_SECRET"):
+        config["feishu_app_secret"] = os.environ["FEISHU_APP_SECRET"]
 
     return config
 
@@ -140,6 +148,7 @@ def main():
     parser.add_argument('--date', '-d', help='报告日期（YYYY-MM-DD，默认今天）')
     parser.add_argument('--config', '-c', help='配置文件路径')
     parser.add_argument('--no-email', action='store_true', help='不发送邮件（仅生成日报）')
+    parser.add_argument('--no-feishu', action='store_true', help='不生成飞书文档')
     parser.add_argument('--output', '-o', help='输出目录')
     args = parser.parse_args()
 
@@ -148,6 +157,8 @@ def main():
 
     if args.no_email:
         config["enable_email"] = False
+    if args.no_feishu:
+        config["enable_feishu"] = False
     if args.output:
         config["output_dir"] = args.output
 
@@ -173,12 +184,13 @@ def main():
     log("INFO", f"报告日期: {report_date}", log_file)
     log("INFO", f"输出目录: {output_dir}", log_file)
     log("INFO", f"邮件推送: {'开启' if config['enable_email'] else '关闭'}", log_file)
+    log("INFO", f"飞书文档: {'开启' if config['enable_feishu'] else '关闭'}", log_file)
     log("INFO", "=" * 60, log_file)
 
     start_time = datetime.now()
 
     # ===== 第一步：采集数据 =====
-    log("INFO", "【步骤1/3】开始采集数据...", log_file)
+    log("INFO", "【步骤1/4】开始采集数据...", log_file)
     collect_args = ["--output", data_file, "--date", report_date]
     success, stdout, stderr = run_script(
         config["collect_script"], collect_args, timeout=120
@@ -234,7 +246,7 @@ def main():
             sys.exit(1)
 
     # ===== 第二步：生成日报 =====
-    log("INFO", "【步骤2/3】开始生成日报...", log_file)
+    log("INFO", "【步骤2/4】开始生成日报...", log_file)
     report_args = ["--data", data_file, "--output", report_file]
     success, stdout, stderr = run_script(
         config["report_script"], report_args, timeout=60
@@ -256,9 +268,50 @@ def main():
             f.write(f"## 错误信息\n\n{chr(10).join(status['errors'])}\n")
         status["steps"]["report"] = "minimal"
 
-    # ===== 第三步：发送邮件 =====
+    # ===== 第三步：生成飞书文档 =====
+    feishu_doc_url = ""
+    if config["enable_feishu"] and config.get("feishu_app_id") and config.get("feishu_app_secret"):
+        log("INFO", "【步骤3/4】开始生成飞书文档...", log_file)
+        feishu_title = f"财经日报-{report_date.replace('-', '年')[:7]}月{report_date.replace('-', '日')[8:10]}日" if len(report_date) == 10 else f"财经日报-{report_date}"
+        # 格式化标题为 YYYY年MM月DD日
+        try:
+            dt = datetime.strptime(report_date, '%Y-%m-%d')
+            feishu_title = f"财经日报-{dt.year}年{dt.month:02d}月{dt.day:02d}日"
+        except Exception:
+            feishu_title = f"财经日报-{report_date}"
+
+        feishu_args = ["--title", feishu_title, "--content-file", report_file]
+        env = os.environ.copy()
+        env["FEISHU_APP_ID"] = config["feishu_app_id"]
+        env["FEISHU_APP_SECRET"] = config["feishu_app_secret"]
+
+        success, stdout, stderr = run_script(
+            config["feishu_script"], feishu_args, timeout=60, env=env
+        )
+
+        if success:
+            # 从输出中提取文档链接
+            import re as re_mod
+            url_match = re_mod.search(r'https?://[^\s"]+docx/[^\s"]+', stdout)
+            if url_match:
+                feishu_doc_url = url_match.group(0)
+                log("INFO", f"飞书文档生成成功: {feishu_doc_url}", log_file)
+                status["steps"]["feishu"] = "success"
+                status["feishu_doc_url"] = feishu_doc_url
+            else:
+                log("WARN", "飞书文档生成成功但未提取到链接", log_file)
+                status["steps"]["feishu"] = "success_no_url"
+        else:
+            log("ERROR", f"飞书文档生成失败: {stderr[:200]}", log_file)
+            status["steps"]["feishu"] = "failed"
+            status["errors"].append(f"飞书文档生成失败: {stderr[:100]}")
+    elif config["enable_feishu"]:
+        log("WARN", "未配置飞书应用凭据（feishu_app_id/feishu_app_secret），跳过飞书文档生成", log_file)
+        status["steps"]["feishu"] = "skipped_no_config"
+
+    # ===== 第四步：发送邮件 =====
     if config["enable_email"]:
-        log("INFO", "【步骤3/3】开始发送邮件...", log_file)
+        log("INFO", "【步骤4/4】开始发送邮件...", log_file)
 
         if not config.get("email_password"):
             log("ERROR", "未配置邮箱授权码（email_password），跳过邮件发送", log_file)
@@ -272,8 +325,16 @@ def main():
             email_args = [
                 "--to", config["email_to"],
                 "--date", report_date,
-                "--full-content", report_content,
             ]
+            if feishu_doc_url:
+                # 有飞书文档链接，使用摘要模式
+                email_args.extend(["--doc-url", feishu_doc_url])
+                # 生成简单摘要
+                email_args.extend(["--summary-stats", "详见飞书文档", "--summary-market", "详见飞书文档", "--summary-news", "详见飞书文档"])
+            else:
+                # 无飞书文档链接，发送完整内容
+                email_args.extend(["--full-content", report_content])
+
             env = os.environ.copy()
             env["SMTP_USER"] = config["email_user"]
             env["SMTP_PASSWORD"] = config["email_password"]
