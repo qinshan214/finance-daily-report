@@ -146,33 +146,66 @@ def set_document_permission(token, doc_id, link_share="tenant_readable"):
         return False
 
 
-def transfer_document_owner(token, doc_id, user_open_id):
+def transfer_document_owner(token, doc_id, owner_id, owner_id_type="open_id"):
     """
-    转移文档所有者给指定用户
+    转移文档所有者给指定用户（注意：飞书API可能不支持直接转移所有者，建议使用 add_document_collaborator）
 
     Args:
         token: tenant_access_token
         doc_id: 文档ID
-        user_open_id: 目标用户的 open_id
+        owner_id: 目标用户ID
+        owner_id_type: 用户ID类型，可选 open_id/user_id/union_id
     """
     url = f"{FEISHU_BASE_URL}/drive/v1/files/{doc_id}/transfer_owner"
     payload = {
         "type": "docx",
-        "owner_id": user_open_id,
-        "owner_id_type": "open_id",
+        "owner_id": owner_id,
+        "owner_id_type": owner_id_type,
     }
 
     try:
         resp = requests.post(url, headers=get_headers(token), json=payload, timeout=10)
         data = resp.json()
         if data.get("code") == 0:
-            log("INFO", f"文档所有者转移成功: {user_open_id}")
+            log("INFO", f"文档所有者转移成功: {owner_id} ({owner_id_type})")
             return True
         else:
             log("WARN", f"文档所有者转移失败: {data.get('msg', '未知错误')} (code={data.get('code')})")
             return False
     except Exception as e:
         log("WARN", f"文档所有者转移异常: {str(e)}")
+        return False
+
+
+def add_document_collaborator(token, doc_id, member_id, member_type="userid", perm="full_access"):
+    """
+    添加文档协作者（推荐方式，用户可在"共享给我"中找到文档）
+
+    Args:
+        token: tenant_access_token
+        doc_id: 文档ID
+        member_id: 用户ID
+        member_type: 用户ID类型，可选 openid/userid/unionid/email
+        perm: 权限级别，可选 view/edit/full_access
+    """
+    url = f"{FEISHU_BASE_URL}/drive/v1/permissions/{doc_id}/members?type=docx&need_notification=false"
+    payload = {
+        "member_type": member_type,
+        "member_id": member_id,
+        "perm": perm,
+    }
+
+    try:
+        resp = requests.post(url, headers=get_headers(token), json=payload, timeout=10)
+        data = resp.json()
+        if data.get("code") == 0:
+            log("INFO", f"添加协作者成功: {member_id} ({member_type}, {perm})")
+            return True
+        else:
+            log("WARN", f"添加协作者失败: {data.get('msg', '未知错误')} (code={data.get('code')})")
+            return False
+    except Exception as e:
+        log("WARN", f"添加协作者异常: {str(e)}")
         return False
 
 
@@ -496,7 +529,14 @@ def main():
                         choices=['tenant_readable', 'tenant_editable', 'anyone_readable', 'anyone_editable', 'closed'],
                         help='文档权限（默认：组织内获得链接的人可阅读）')
     parser.add_argument('--no-permission', action='store_true', help='不设置文档权限')
-    parser.add_argument('--transfer-owner', help='将文档所有者转移给指定用户的open_id')
+    parser.add_argument('--transfer-owner', help='将文档所有者转移给指定用户ID（可能不被API支持）')
+    parser.add_argument('--owner-id-type', default='open_id', choices=['open_id', 'user_id', 'union_id'],
+                        help='用户ID类型（默认：open_id）')
+    parser.add_argument('--add-collaborator', help='添加文档协作者（用户ID），推荐使用，用户可在"共享给我"中找到文档')
+    parser.add_argument('--collaborator-type', default='userid', choices=['openid', 'userid', 'unionid', 'email'],
+                        help='协作者ID类型（默认：userid）')
+    parser.add_argument('--collaborator-perm', default='full_access', choices=['view', 'edit', 'full_access'],
+                        help='协作者权限（默认：full_access 可管理）')
     args = parser.parse_args()
 
     # 获取内容
@@ -541,13 +581,22 @@ def main():
 
     # 5. 设置权限（默认设置，除非指定 --no-permission）
     if not args.no_permission:
-        set_document_permission(token, doc_id, args.permission)
+        permission = args.permission or os.environ.get("FEISHU_DOC_PERMISSION", "tenant_readable")
+        set_document_permission(token, doc_id, permission)
 
-    # 6. 转移文档所有者（如果指定）
+    # 6. 转移文档所有者（如果指定，注意：可能不被API支持）
     if args.transfer_owner:
-        transfer_document_owner(token, doc_id, args.transfer_owner)
+        transfer_document_owner(token, doc_id, args.transfer_owner, args.owner_id_type)
 
-    # 7. 输出结果
+    # 7. 添加协作者（推荐方式，用户可在"共享给我"中找到文档）
+    # 如果没有指定 --add-collaborator，从环境变量读取默认值
+    collaborator_id = args.add_collaborator or os.environ.get("FEISHU_DOC_COLLABORATOR_ID")
+    if collaborator_id:
+        collaborator_type = args.collaborator_type or os.environ.get("FEISHU_DOC_COLLABORATOR_TYPE", "userid")
+        collaborator_perm = args.collaborator_perm or os.environ.get("FEISHU_DOC_COLLABORATOR_PERM", "full_access")
+        add_document_collaborator(token, doc_id, collaborator_id, collaborator_type, collaborator_perm)
+
+    # 8. 输出结果
     doc_url = get_document_url(doc_id)
     log("INFO", "=" * 50)
     log("INFO", "文档生成完成！")
