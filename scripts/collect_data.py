@@ -71,8 +71,11 @@ def random_delay(min_sec=0.3, max_sec=0.8):
 
 STATS_URL = "https://www.stats.gov.cn/"
 SINA_URL = "https://finance.sina.com.cn/"
-CACHE_DIR = "cache"
-LOG_DIR = "logs"
+# 使用基于脚本位置的绝对路径，避免从其他目录运行时路径错误
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
+CACHE_DIR = os.path.join(PROJECT_DIR, "cache")
+LOG_DIR = os.path.join(PROJECT_DIR, "logs")
 
 ERRORS = []
 LOGS = []
@@ -204,12 +207,32 @@ def fetch_stats_data():
     }
 
     try:
-        response = fetch_with_retry(STATS_URL, encoding='utf-8')
+        # 多源降级：首页 → 最新发布栏目
+        stats_sources = [
+            ("国家统计局首页", STATS_URL, STATS_URL),
+            ("国家统计局最新发布", "https://www.stats.gov.cn/sj/zxfb/", "https://www.stats.gov.cn/sj/zxfb/"),
+        ]
+        response = None
+        source_name = "国家统计局"
+        base_url = STATS_URL
+        for src_name, src_url, src_base in stats_sources:
+            log_info(f"尝试国家统计局数据源: {src_name}")
+            response = fetch_with_retry(src_url, encoding='utf-8', timeout=(8, 15), retries=2)
+            if response is not None and len(response.text) > 1000:
+                source_name = src_name
+                base_url = src_base
+                log_info(f"国家统计局数据源 {src_name} 成功")
+                break
+            log_warn(f"国家统计局数据源 {src_name} 失败，尝试下一个")
+            random_delay(0.5, 1.0)
+
         if response is None:
             result["status"] = "failed"
-            log_error("国家统计局首页访问失败")
+            log_error("国家统计局所有数据源均失败")
             return result
 
+        result["source"] = source_name
+        result["source_url"] = base_url
         soup = BeautifulSoup(response.text, 'html.parser')
         release_items = []
         seen_titles = set()
@@ -244,7 +267,7 @@ def fetch_stats_data():
             if any(kw in title for kw in exclude_keywords):
                 continue
 
-            full_url = urljoin(STATS_URL, href)
+            full_url = urljoin(base_url, href)
             date_str = ""
             parent = link.parent
             if parent:
@@ -621,12 +644,32 @@ def fetch_news_data():
     }
 
     try:
-        response = fetch_with_retry(SINA_URL, encoding='utf-8')
+        # 多源降级：新浪财经 → 东方财富
+        news_sources = [
+            ("新浪财经", SINA_URL, SINA_URL, 'utf-8'),
+            ("东方财富", "https://finance.eastmoney.com/", "https://finance.eastmoney.com/", 'utf-8'),
+        ]
+        response = None
+        source_name = "新浪财经"
+        base_url = SINA_URL
+        for src_name, src_url, src_base, src_enc in news_sources:
+            log_info(f"尝试财经新闻数据源: {src_name}")
+            response = fetch_with_retry(src_url, encoding=src_enc, timeout=(8, 15), retries=2)
+            if response is not None and len(response.text) > 2000:
+                source_name = src_name
+                base_url = src_base
+                log_info(f"财经新闻数据源 {src_name} 成功")
+                break
+            log_warn(f"财经新闻数据源 {src_name} 失败，尝试下一个")
+            random_delay(0.5, 1.0)
+
         if response is None:
             result["status"] = "failed"
-            log_error("新浪财经首页访问失败")
+            log_error("财经新闻所有数据源均失败")
             return result
 
+        result["source"] = source_name
+        result["source_url"] = base_url
         soup = BeautifulSoup(response.text, 'html.parser')
         news_items = []
         seen = set()
@@ -655,9 +698,14 @@ def fetch_news_data():
             if title in seen:
                 continue
             if not href.startswith('http'):
-                href = urljoin(SINA_URL, href)
-            if not any(d in href for d in ['sina.com.cn', 'finance.sina']):
-                continue
+                href = urljoin(base_url, href)
+            # 根据数据源动态检查域名
+            if 'sina' in base_url:
+                if not any(d in href for d in ['sina.com.cn', 'finance.sina']):
+                    continue
+            elif 'eastmoney' in base_url:
+                if not any(d in href for d in ['eastmoney.com']):
+                    continue
             if any(kw in title for kw in exclude_keywords):
                 continue
 
@@ -678,6 +726,7 @@ def fetch_news_data():
                 break
 
         result["top_news"] = news_items[:15]
+        result["total_count"] = len(news_items)
         log_info(f"采集到 {len(news_items)} 条新闻 "
                  f"(国际:{len(result['categories']['international'])}, "
                  f"宏观:{len(result['categories']['macro'])}, "
@@ -704,8 +753,14 @@ def main():
     report_date = args.date or datetime.now().strftime('%Y-%m-%d')
     output_path = args.output or f"output/data_{report_date}.json"
 
+    # 重置全局变量，避免多次运行时错误累积
+    global ERRORS, LOGS
+    ERRORS = []
+    LOGS = []
+
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
+    os.makedirs(CACHE_DIR, exist_ok=True)
 
     log_info("=" * 60)
     log_info(f"每日财经日报数据采集开始（增强版）")
@@ -714,6 +769,24 @@ def main():
     log_info("=" * 60)
 
     start_time = time.time()
+
+    # 健康检查：快速测试各数据源可用性
+    log_info("开始数据源健康检查...")
+    health_check_urls = {
+        "国家统计局": STATS_URL,
+        "新浪财经": SINA_URL,
+        "腾讯财经": "https://qt.gtimg.cn/q=sh000001",
+        "东方财富": "https://finance.eastmoney.com/",
+    }
+    health_status = {}
+    for name, url in health_check_urls.items():
+        try:
+            resp = SESSION.get(url, headers=get_random_headers(), timeout=(5, 8), allow_redirects=True)
+            health_status[name] = "ok" if resp.status_code == 200 and len(resp.text) > 500 else f"http_{resp.status_code}"
+        except Exception as e:
+            health_status[name] = f"error_{str(e)[:30]}"
+        log_info(f"  健康检查 {name}: {health_status[name]}")
+    random_delay(0.3, 0.5)
 
     # 采集五大模块
     stats_data = fetch_stats_data()
@@ -761,9 +834,10 @@ def main():
             "global_status": global_data.get("status", "unknown"),
             "global_count": len(global_data.get("markets", {})),
             "news_status": news_data.get("status", "unknown"),
-            "news_count": len(news_data.get("top_news", [])),
+            "news_count": news_data.get("total_count", len(news_data.get("top_news", []))),
             "total_errors": len(ERRORS),
             "elapsed_seconds": elapsed,
+            "health_check": health_status,
         },
     }
 
