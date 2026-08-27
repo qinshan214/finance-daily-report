@@ -159,10 +159,70 @@ def generate_report(data):
                 lines.append(f"| {i} | {name} | {pct:+.2f}% |")
             lines.append("")
 
+    # 个股排行
+    stock_ranking = data.get('stock_ranking', {})
+    if stock_ranking.get('status') == 'success' and (stock_ranking.get('top_gainers') or stock_ranking.get('top_losers')):
+        lines.append("### 2.4 个股排行")
+        lines.append("")
+
+        # 涨幅榜
+        gainers = stock_ranking.get('top_gainers', [])
+        if gainers:
+            lines.append("**📈 涨幅榜 Top10：**")
+            lines.append("")
+            lines.append("| 排名 | 股票 | 代码 | 最新价 | 涨跌幅 | 成交额(亿) | 换手率 |")
+            lines.append("|------|------|------|--------|--------|-----------|--------|")
+            for i, stock in enumerate(gainers[:10], 1):
+                name = stock.get('name', '')
+                code = stock.get('code', '')
+                price = stock.get('price', 0)
+                change_pct = stock.get('change_pct', 0)
+                amount = stock.get('amount', 0) / 1e8 if stock.get('amount', 0) else 0
+                turnover = stock.get('turnover', 0)
+                pct_sign = "+" if change_pct >= 0 else ""
+                lines.append(f"| {i} | {name} | {code} | {price:.2f} | {pct_sign}{change_pct:.2f}% | {amount:.2f} | {turnover:.2f}% |")
+            lines.append("")
+
+        # 跌幅榜
+        losers = stock_ranking.get('top_losers', [])
+        if losers:
+            lines.append("**📉 跌幅榜 Top10：**")
+            lines.append("")
+            lines.append("| 排名 | 股票 | 代码 | 最新价 | 涨跌幅 | 成交额(亿) | 换手率 |")
+            lines.append("|------|------|------|--------|--------|-----------|--------|")
+            for i, stock in enumerate(losers[:10], 1):
+                name = stock.get('name', '')
+                code = stock.get('code', '')
+                price = stock.get('price', 0)
+                change_pct = stock.get('change_pct', 0)
+                amount = stock.get('amount', 0) / 1e8 if stock.get('amount', 0) else 0
+                turnover = stock.get('turnover', 0)
+                pct_sign = "+" if change_pct >= 0 else ""
+                lines.append(f"| {i} | {name} | {code} | {price:.2f} | {pct_sign}{change_pct:.2f}% | {amount:.2f} | {turnover:.2f}% |")
+            lines.append("")
+
+        # 成交额榜
+        volume = stock_ranking.get('top_volume', [])
+        if volume:
+            lines.append("**💰 成交额榜 Top10：**")
+            lines.append("")
+            lines.append("| 排名 | 股票 | 代码 | 最新价 | 涨跌幅 | 成交额(亿) | 换手率 |")
+            lines.append("|------|------|------|--------|--------|-----------|--------|")
+            for i, stock in enumerate(volume[:10], 1):
+                name = stock.get('name', '')
+                code = stock.get('code', '')
+                price = stock.get('price', 0)
+                change_pct = stock.get('change_pct', 0)
+                amount = stock.get('amount', 0) / 1e8 if stock.get('amount', 0) else 0
+                turnover = stock.get('turnover', 0)
+                pct_sign = "+" if change_pct >= 0 else ""
+                lines.append(f"| {i} | {name} | {code} | {price:.2f} | {pct_sign}{change_pct:.2f}% | {amount:.2f} | {turnover:.2f}% |")
+            lines.append("")
+
     # 全球市场
     global_market = data.get('global_market', {})
     if global_market.get('markets'):
-        lines.append("### 2.4 全球市场动态")
+        lines.append("### 2.5 全球市场动态")
         lines.append("")
         lines.append("| 指标 | 最新价 | 涨跌额 | 涨跌幅 |")
         lines.append("|------|--------|--------|--------|")
@@ -175,7 +235,7 @@ def generate_report(data):
             lines.append(f"| {name} | {price} | {change_sign}{change} | {pct_sign}{change_pct}% |")
         lines.append("")
     elif global_market.get('status') == 'failed':
-        lines.append("### 2.4 全球市场动态")
+        lines.append("### 2.5 全球市场动态")
         lines.append("")
         lines.append("*全球市场数据采集失败*")
         lines.append("")
@@ -184,6 +244,24 @@ def generate_report(data):
     lines.append("## 板块三：当日重要财经新闻")
     lines.append("")
     news = data.get('news', {})
+
+    # 今日重点新闻（按重要性排序的Top5）
+    highlight_news = news.get('highlight_news', [])
+    if highlight_news:
+        lines.append("### 🔥 今日重点新闻（按重要性排序）")
+        lines.append("")
+        for i, item in enumerate(highlight_news[:5], 1):
+            title = item.get('title', '')
+            url = item.get('url', '')
+            importance = item.get('importance', 0)
+            stars = "⭐" * min(importance, 5)  # 最多5颗星
+            if title:
+                if url:
+                    lines.append(f"{i}. [{title}]({url}) {stars}")
+                else:
+                    lines.append(f"{i}. {title} {stars}")
+        lines.append("")
+
     categories = news.get('categories', {})
 
     category_names = [
@@ -198,11 +276,18 @@ def generate_report(data):
         if items:
             lines.append(f"### {cat_title}")
             lines.append("")
-            for item in items[:8]:
+            # 按重要性排序
+            items_sorted = sorted(items, key=lambda x: x.get("importance", 0), reverse=True)
+            for item in items_sorted[:8]:
                 title = item.get('title', '')
                 url = item.get('url', '')
+                importance = item.get('importance', 0)
+                stars = "⭐" * min(importance, 3) if importance >= 3 else ""
                 if title:
-                    lines.append(f"- [{title}]({url})" if url else f"- {title}")
+                    if url:
+                        lines.append(f"- [{title}]({url}) {stars}".rstrip())
+                    else:
+                        lines.append(f"- {title} {stars}".rstrip())
             lines.append("")
 
     # ===== 板块四：数据采集说明 =====
@@ -219,6 +304,7 @@ def generate_report(data):
     lines.append(f"| A股行情 | {summary.get('market_status', '未知')} - {summary.get('market_source', '')} - {summary.get('market_indices', 0)}个指数 |")
     lines.append(f"| 行业板块 | {summary.get('sector_status', '未知')} - {summary.get('sector_count', 0)}个板块 |")
     lines.append(f"| 全球市场 | {summary.get('global_status', '未知')} - {summary.get('global_count', 0)}个指标 |")
+    lines.append(f"| 个股排行 | {summary.get('stock_ranking_status', '未知')} - 涨幅{summary.get('stock_gainers_count', 0)}只/跌幅{summary.get('stock_losers_count', 0)}只 |")
     lines.append(f"| 财经新闻 | {summary.get('news_status', '未知')} - {summary.get('news_count', 0)}条新闻 |")
 
     errors = data.get('errors', [])

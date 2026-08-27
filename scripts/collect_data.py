@@ -632,7 +632,81 @@ def fetch_global_market():
 
 
 # ============================================
-# 模块五：财经新闻（新浪财经）
+# 模块五：个股排行（新浪财经API）
+# ============================================
+def fetch_stock_ranking():
+    """采集个股排行数据（涨幅榜、跌幅榜、成交额榜）"""
+    log_info("开始采集个股排行数据...")
+    result = {
+        "source": "新浪财经API",
+        "status": "success",
+        "top_gainers": [],   # 涨幅榜
+        "top_losers": [],     # 跌幅榜
+        "top_volume": [],     # 成交额榜
+    }
+
+    base_url = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
+    headers = {"Referer": "https://finance.sina.com.cn/"}
+
+    def fetch_ranking(sort_field, asc, count=10):
+        """获取排行数据"""
+        url = f"{base_url}?page=1&num={count}&sort={sort_field}&asc={asc}&node=hs_a&symbol=&_s_r_a=page"
+        try:
+            response = fetch_with_retry(url, headers=headers, timeout=(8, 15), retries=2, encoding='gbk')
+            if response is None:
+                return []
+            text = response.text.strip()
+            if not text or text == 'null':
+                return []
+            # 新浪财经返回的是标准JSON，直接解析
+            data = json.loads(text)
+            stocks = []
+            for item in data[:count]:
+                stock = {
+                    "code": item.get("code", ""),
+                    "name": item.get("name", ""),
+                    "price": float(item.get("trade", 0)),
+                    "change": float(item.get("pricechange", 0)),
+                    "change_pct": float(item.get("changepercent", 0)),
+                    "volume": int(item.get("volume", 0)),
+                    "amount": float(item.get("amount", 0)),
+                    "turnover": float(item.get("turnoverratio", 0)),
+                    "pe": float(item.get("per", 0)),
+                    "pb": float(item.get("pb", 0)),
+                    "market_cap": float(item.get("mktcap", 0)),
+                }
+                stocks.append(stock)
+            return stocks
+        except Exception as e:
+            log_warn(f"获取排行数据失败 ({sort_field}): {str(e)[:60]}")
+            return []
+
+    # 涨幅榜（按涨跌幅降序）
+    log_info("获取涨幅榜...")
+    result["top_gainers"] = fetch_ranking("changepercent", 0, 10)
+    log_info(f"涨幅榜: {len(result['top_gainers'])}只")
+
+    # 跌幅榜（按涨跌幅升序）
+    log_info("获取跌幅榜...")
+    result["top_losers"] = fetch_ranking("changepercent", 1, 10)
+    log_info(f"跌幅榜: {len(result['top_losers'])}只")
+
+    # 成交额榜（按成交额降序）
+    log_info("获取成交额榜...")
+    result["top_volume"] = fetch_ranking("amount", 0, 10)
+    log_info(f"成交额榜: {len(result['top_volume'])}只")
+
+    if not result["top_gainers"] and not result["top_losers"] and not result["top_volume"]:
+        result["status"] = "failed"
+        log_error("个股排行所有数据源均失败")
+    else:
+        log_info(f"个股排行采集成功: 涨幅{len(result['top_gainers'])}只, 跌幅{len(result['top_losers'])}只, 成交额{len(result['top_volume'])}只")
+
+    return result
+
+
+# ============================================
+# 模块六：财经新闻（新浪财经）
 # ============================================
 def fetch_news_data():
     """采集新浪财经新闻"""
@@ -690,6 +764,39 @@ def fetch_news_data():
                      '新能源', '光伏', '锂电', '半导体', '业绩', '财报', '营收', '利润',
                      '上市', 'IPO', '并购', '重组', '分红', '回购']
 
+        # 新闻重要性评分关键词
+        high_priority_kw = ['央行', '降息', '加息', '美联储', 'GDP', 'CPI', 'PPI', 'PMI',
+                           '国务院', '证监会', 'IPO', '退市', '爆雷', '崩盘', '暴涨', '暴跌',
+                           '万亿', '千亿', '战争', '冲突', '制裁', '关税', '贸易战', '疫情',
+                           '新能源', '人工智能', '芯片', '半导体', '光伏', '锂电']
+        medium_priority_kw = ['政策', '监管', '法规', '改革', '规划', '意见', '通知',
+                             '业绩', '财报', '营收', '利润', '亏损', '盈利', '增长', '下滑',
+                             '并购', '重组', '分红', '回购', '增持', '减持', '质押', '爆仓',
+                             '融资', '融券', '北向', '南向', '主力', '机构', '外资']
+        low_priority_kw = ['公司', '股份', '集团', '控股', '有限', '科技', '汽车', '医药',
+                          '银行', '证券', '保险', '地产', '能源']
+
+        def calc_news_importance(title):
+            """计算新闻重要性评分（0-10分）"""
+            score = 0
+            # 高优先级关键词
+            high_count = sum(1 for kw in high_priority_kw if kw in title)
+            score += min(high_count * 3, 6)
+            # 中优先级关键词
+            medium_count = sum(1 for kw in medium_priority_kw if kw in title)
+            score += min(medium_count * 2, 4)
+            # 低优先级关键词
+            low_count = sum(1 for kw in low_priority_kw if kw in title)
+            score += min(low_count * 1, 2)
+            # 标题长度适中
+            if 15 <= len(title) <= 40:
+                score += 1
+            # 包含数字或百分比
+            import re as re_news
+            if re_news.search(r'\d+(\.\d+)?%|\d+亿|\d+万|\d+元', title):
+                score += 1
+            return min(score, 10)
+
         for link in soup.find_all('a', href=True):
             title = safe_text(link)
             href = link.get('href', '')
@@ -709,7 +816,7 @@ def fetch_news_data():
             if any(kw in title for kw in exclude_keywords):
                 continue
 
-            item = {"title": title, "url": href}
+            item = {"title": title, "url": href, "importance": calc_news_importance(title)}
             news_items.append(item)
             seen.add(title)
 
@@ -725,7 +832,10 @@ def fetch_news_data():
             if len(news_items) >= 50:
                 break
 
-        result["top_news"] = news_items[:15]
+        # 按重要性排序，生成重点新闻
+        news_items_sorted = sorted(news_items, key=lambda x: x.get("importance", 0), reverse=True)
+        result["top_news"] = news_items_sorted[:15]
+        result["highlight_news"] = news_items_sorted[:5]  # 最重要的5条
         result["total_count"] = len(news_items)
         log_info(f"采集到 {len(news_items)} 条新闻 "
                  f"(国际:{len(result['categories']['international'])}, "
@@ -793,6 +903,7 @@ def main():
     market_data = fetch_market_data()
     sector_data = fetch_sector_data()
     global_data = fetch_global_market()
+    stock_ranking = fetch_stock_ranking()
     news_data = fetch_news_data()
 
     # 历史数据对比（环比）
@@ -820,6 +931,7 @@ def main():
         "market": market_data,
         "sectors": sector_data,
         "global_market": global_data,
+        "stock_ranking": stock_ranking,
         "news": news_data,
         "comparison": comparison,
         "errors": ERRORS,
@@ -833,6 +945,9 @@ def main():
             "sector_count": len(sector_data.get("sectors", [])),
             "global_status": global_data.get("status", "unknown"),
             "global_count": len(global_data.get("markets", {})),
+            "stock_ranking_status": stock_ranking.get("status", "unknown"),
+            "stock_gainers_count": len(stock_ranking.get("top_gainers", [])),
+            "stock_losers_count": len(stock_ranking.get("top_losers", [])),
             "news_status": news_data.get("status", "unknown"),
             "news_count": news_data.get("total_count", len(news_data.get("top_news", []))),
             "total_errors": len(ERRORS),
