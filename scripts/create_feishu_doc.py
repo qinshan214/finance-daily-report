@@ -107,6 +107,75 @@ def create_document(token, title):
         return None
 
 
+def set_document_permission(token, doc_id, link_share="tenant_readable"):
+    """
+    设置文档公共权限
+
+    Args:
+        token: tenant_access_token
+        doc_id: 文档ID
+        link_share: 链接分享权限
+            - "tenant_readable": 组织内获得链接的人可阅读（默认）
+            - "tenant_editable": 组织内获得链接的人可编辑
+            - "anyone_readable": 互联网获得链接的人可阅读
+            - "anyone_editable": 互联网获得链接的人可编辑
+            - "closed": 关闭链接分享
+    """
+    # type 参数必须放在 URL 查询参数中
+    url = f"{FEISHU_BASE_URL}/drive/v1/permissions/{doc_id}/public?type=docx"
+    payload = {
+        "external_access_entity": "open",  # 允许外部用户访问
+        "link_share_entity": link_share,
+        "comment_entity": "anyone_can_view",  # 任何人可查看评论
+        "copy_entity": "anyone_can_view",     # 任何人可复制
+        "share_entity": "anyone",              # 任何人可分享
+        "manage_collaborator_entity": "collaborator_can_view",  # 协作者可查看协作者
+    }
+
+    try:
+        resp = requests.patch(url, headers=get_headers(token), json=payload, timeout=10)
+        data = resp.json()
+        if data.get("code") == 0:
+            log("INFO", f"文档权限设置成功: {link_share}")
+            return True
+        else:
+            log("WARN", f"文档权限设置失败: {data.get('msg', '未知错误')} (code={data.get('code')})")
+            return False
+    except Exception as e:
+        log("WARN", f"文档权限设置异常: {str(e)}")
+        return False
+
+
+def transfer_document_owner(token, doc_id, user_open_id):
+    """
+    转移文档所有者给指定用户
+
+    Args:
+        token: tenant_access_token
+        doc_id: 文档ID
+        user_open_id: 目标用户的 open_id
+    """
+    url = f"{FEISHU_BASE_URL}/drive/v1/files/{doc_id}/transfer_owner"
+    payload = {
+        "type": "docx",
+        "owner_id": user_open_id,
+        "owner_id_type": "open_id",
+    }
+
+    try:
+        resp = requests.post(url, headers=get_headers(token), json=payload, timeout=10)
+        data = resp.json()
+        if data.get("code") == 0:
+            log("INFO", f"文档所有者转移成功: {user_open_id}")
+            return True
+        else:
+            log("WARN", f"文档所有者转移失败: {data.get('msg', '未知错误')} (code={data.get('code')})")
+            return False
+    except Exception as e:
+        log("WARN", f"文档所有者转移异常: {str(e)}")
+        return False
+
+
 def get_document_url(doc_id):
     """获取文档访问链接"""
     return f"https://bytedance.larkoffice.com/docx/{doc_id}"
@@ -423,7 +492,11 @@ def main():
     parser.add_argument('--title', '-t', required=True, help='文档标题')
     parser.add_argument('--content', '-c', help='文档内容（Markdown格式）')
     parser.add_argument('--content-file', '-f', help='文档内容文件路径（Markdown格式）')
-    parser.add_argument('--set-permission', action='store_true', help='设置文档权限为组织内可查看')
+    parser.add_argument('--permission', '-p', default='tenant_readable',
+                        choices=['tenant_readable', 'tenant_editable', 'anyone_readable', 'anyone_editable', 'closed'],
+                        help='文档权限（默认：组织内获得链接的人可阅读）')
+    parser.add_argument('--no-permission', action='store_true', help='不设置文档权限')
+    parser.add_argument('--transfer-owner', help='将文档所有者转移给指定用户的open_id')
     args = parser.parse_args()
 
     # 获取内容
@@ -466,11 +539,15 @@ def main():
         if not success:
             log("WARN", "部分块插入失败，但文档已创建")
 
-    # 5. 设置权限
-    if args.set_permission:
-        set_doc_permission(token, doc_id)
+    # 5. 设置权限（默认设置，除非指定 --no-permission）
+    if not args.no_permission:
+        set_document_permission(token, doc_id, args.permission)
 
-    # 6. 输出结果
+    # 6. 转移文档所有者（如果指定）
+    if args.transfer_owner:
+        transfer_document_owner(token, doc_id, args.transfer_owner)
+
+    # 7. 输出结果
     doc_url = get_document_url(doc_id)
     log("INFO", "=" * 50)
     log("INFO", "文档生成完成！")
