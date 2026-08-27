@@ -325,15 +325,18 @@ def main():
             email_args = [
                 "--to", config["email_to"],
                 "--date", report_date,
+                "--attach", report_file,  # 附加Markdown文件
             ]
             if feishu_doc_url:
                 # 有飞书文档链接，使用摘要模式
                 email_args.extend(["--doc-url", feishu_doc_url])
                 # 生成简单摘要
                 email_args.extend(["--summary-stats", "详见飞书文档", "--summary-market", "详见飞书文档", "--summary-news", "详见飞书文档"])
+                email_args.extend(["--status", "success"])
             else:
                 # 无飞书文档链接，发送完整内容
                 email_args.extend(["--full-content", report_content])
+                email_args.extend(["--status", "warning"])
 
             env = os.environ.copy()
             env["SMTP_USER"] = config["email_user"]
