@@ -20,6 +20,9 @@ temp/
 .env
 .env.local
 .env.*.local
+# 配置文件（包含敏感信息）
+config.json
+config.local.json
 
 # 输出文件（日报生成的临时文件）
 output/

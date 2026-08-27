@@ -1,0 +1,38 @@
+{
+  "// 说明": "每日财经日报配置文件模板，复制为 config.json 后修改",
+  "// 优先级": "命令行参数 > 环境变量(.env) > config.json > 默认值",
+
+  "email": {
+    "smtp_host": "smtp.qq.com",
+    "smtp_port": 465,
+    "smtp_user": "your_email@qq.com",
+    "smtp_password": "your_email_auth_code",
+    "email_to": "your_email@qq.com",
+    "enable": true
+  },
+
+  "feishu": {
+    "app_id": "cli_xxxxxxxxxxxxxxxx",
+    "app_secret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "enable": true
+  },
+
+  "script": {
+    "output_dir": "output",
+    "log_dir": "logs",
+    "enable_alert": true
+  },
+
+  "mode_switch": {
+    "consecutive_failures": 2,
+    "daily_failure_rate": 0.3,
+    "cooldown_minutes": 60
+  },
+
+  "data_collection": {
+    "news_count": 50,
+    "stock_ranking_count": 10,
+    "request_timeout": 15,
+    "request_retries": 2
+  }
+}

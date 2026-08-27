@@ -95,7 +95,41 @@ def run_script(script_path, args, timeout=120, env=None):
 
 
 def load_config(config_path):
-    """加载配置文件"""
+    """加载配置（优先使用统一配置加载器，保持向后兼容）"""
+    # 尝试使用统一配置加载器
+    try:
+        sys.path.insert(0, SCRIPT_DIR)
+        from config_loader import load_config as load_config_unified, validate_config
+        unified_config = load_config_unified(config_path)
+
+        # 转换为原有格式
+        config = DEFAULT_CONFIG.copy()
+        email = unified_config.get("email", {})
+        feishu = unified_config.get("feishu", {})
+        script = unified_config.get("script", {})
+
+        config["email_to"] = email.get("email_to", config["email_to"])
+        config["email_user"] = email.get("smtp_user", config["email_user"])
+        config["email_password"] = email.get("smtp_password", config["email_password"])
+        config["enable_email"] = email.get("enable", config["enable_email"])
+        config["output_dir"] = script.get("output_dir", config["output_dir"])
+        config["log_dir"] = script.get("log_dir", config["log_dir"])
+        config["enable_feishu"] = feishu.get("enable", config["enable_feishu"])
+        config["feishu_app_id"] = feishu.get("app_id", config["feishu_app_id"])
+        config["feishu_app_secret"] = feishu.get("app_secret", config["feishu_app_secret"])
+
+        # 校验配置
+        errors = validate_config(unified_config, check_email=config["enable_email"], check_feishu=config["enable_feishu"])
+        if errors:
+            log("WARN", "配置校验警告:")
+            for error in errors:
+                log("WARN", f"  - {error}")
+
+        return config
+    except ImportError:
+        # 配置加载器不可用，使用原有逻辑
+        pass
+
     config = DEFAULT_CONFIG.copy()
     if config_path and os.path.exists(config_path):
         try:
