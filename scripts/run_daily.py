@@ -376,6 +376,69 @@ def main():
 
     save_status(status, report_date)
 
+    # ===== 失败告警机制 =====
+    if status["status"] == "failed" or status["errors"]:
+        # 统计连续失败次数
+        consecutive_failures = 0
+        try:
+            if os.path.exists(STATUS_FILE):
+                with open(STATUS_FILE, 'r', encoding='utf-8') as f:
+                    history = json.load(f)
+                sorted_dates = sorted(history.keys(), reverse=True)
+                for d in sorted_dates:
+                    s = history.get(d, {})
+                    # 统计连续失败或有错误的执行
+                    if s.get("status") in ["failed", "completed_with_errors"] or s.get("errors"):
+                        consecutive_failures += 1
+                    else:
+                        break
+        except Exception:
+            pass
+
+        # 确定告警级别
+        if consecutive_failures >= 3:
+            alert_level = "critical"
+        elif consecutive_failures >= 2 or status["status"] == "failed":
+            alert_level = "warning"
+        else:
+            alert_level = "info"
+
+        log("WARN", f"检测到执行异常，连续失败 {consecutive_failures} 次，告警级别: {alert_level}", log_file)
+
+        # 构建错误信息
+        error_msg = "\n".join(status["errors"]) if status["errors"] else "执行失败（未记录具体错误）"
+        if len(error_msg) > 2000:
+            error_msg = error_msg[:2000] + "\n...（错误信息过长，已截断）"
+
+        # 调用告警脚本
+        alert_script = os.path.join(SCRIPT_DIR, "alert.py")
+        if os.path.exists(alert_script):
+            alert_args = [
+                "--date", report_date,
+                "--error", error_msg,
+                "--level", alert_level,
+                "--consecutive", str(consecutive_failures),
+                "--status-file", STATUS_FILE,
+            ]
+            env = os.environ.copy()
+            if config.get("email_user"):
+                env["SMTP_USER"] = config["email_user"]
+            if config.get("email_password"):
+                env["SMTP_PASSWORD"] = config["email_password"]
+
+            success, stdout, stderr = run_script(alert_script, alert_args, timeout=30, env=env)
+            if success:
+                log("INFO", "告警邮件发送成功", log_file)
+                status["alert_sent"] = True
+            else:
+                log("ERROR", f"告警邮件发送失败: {stderr[:200]}", log_file)
+                status["alert_sent"] = False
+        else:
+            log("WARN", f"告警脚本不存在: {alert_script}", log_file)
+
+        # 重新保存状态（包含告警信息）
+        save_status(status, report_date)
+
     if status["status"] == "failed":
         sys.exit(1)
 
