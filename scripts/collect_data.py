@@ -29,23 +29,45 @@ import argparse
 import os
 import sys
 import re
+import random
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
 
 # ============================================
 # 配置
 # ============================================
-DEFAULT_TIMEOUT = 15
-MAX_RETRIES = 3
+DEFAULT_TIMEOUT = (10, 25)
+MAX_RETRIES = 4
 RETRY_DELAY = 2
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+]
+
+BASE_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
 }
+
+SESSION = requests.Session()
+SESSION.headers.update(BASE_HEADERS)
+
+HEADERS = BASE_HEADERS.copy()
+HEADERS["User-Agent"] = USER_AGENTS[0]
+
+def get_random_headers(referer=None):
+    headers = BASE_HEADERS.copy()
+    headers["User-Agent"] = random.choice(USER_AGENTS)
+    if referer:
+        headers["Referer"] = referer
+    return headers
+
+def random_delay(min_sec=0.3, max_sec=0.8):
+    time.sleep(random.uniform(min_sec, max_sec))
 
 STATS_URL = "https://www.stats.gov.cn/"
 SINA_URL = "https://finance.sina.com.cn/"
@@ -74,12 +96,17 @@ def log_warn(msg): log("WARN", msg)
 def log_error(msg): log("ERROR", msg)
 
 
-def fetch_with_retry(url, headers=None, timeout=DEFAULT_TIMEOUT, retries=MAX_RETRIES, encoding=None):
-    """带重试的 HTTP GET 请求"""
-    merged_headers = {**HEADERS, **(headers or {})}
+def fetch_with_retry(url, headers=None, timeout=DEFAULT_TIMEOUT, retries=MAX_RETRIES, encoding=None, use_session=True):
+    """带重试的 HTTP GET 请求（使用Session复用连接 + 随机UA）"""
+    merged_headers = get_random_headers()
+    if headers:
+        merged_headers.update(headers)
     for attempt in range(retries):
         try:
-            response = requests.get(url, headers=merged_headers, timeout=timeout, allow_redirects=True)
+            if use_session:
+                response = SESSION.get(url, headers=merged_headers, timeout=timeout, allow_redirects=True)
+            else:
+                response = requests.get(url, headers=merged_headers, timeout=timeout, allow_redirects=True)
             response.raise_for_status()
             if encoding:
                 response.encoding = encoding
@@ -450,44 +477,134 @@ def fetch_sector_data():
 # 模块四：全球市场（东方财富API）
 # ============================================
 def fetch_global_market():
-    """采集全球市场数据"""
+    """采集全球市场数据（多源降级：东方财富→新浪→腾讯）"""
     log_info("开始采集全球市场数据...")
-    result = {"source": "东方财富", "status": "success", "markets": {}}
+    result = {"source": "", "status": "success", "markets": {}}
 
-    try:
-        # 美股三大指数 + 黄金 + 原油 + 汇率
+    # 数据源1：东方财富API
+    def try_eastmoney():
         secids = "100.DJIA,100.NDX,100.SPX,101.GC00Y,101.CL00Y,133.USDCNH"
         url = f"https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids={secids}&fields=f2,f3,f4,f12,f14"
-        response = fetch_with_retry(url)
+        response = fetch_with_retry(url, timeout=(8, 15), retries=2)
         if response is None:
-            result["status"] = "failed"
-            log_error("全球市场数据访问失败")
-            return result
-
+            return None
         data = response.json().get("data", {})
         diff = data.get("diff", [])
+        if not diff:
+            return None
         name_map = {
             "DJIA": "道琼斯", "NDX": "纳斯达克", "SPX": "标普500",
             "GC00Y": "COMEX黄金", "CL00Y": "WTI原油", "USDCNH": "美元兑离岸人民币"
         }
-
+        markets = {}
         for item in diff:
             code = item.get("f12", "")
             name = name_map.get(code, item.get("f14", code))
-            price = item.get("f2", 0)
-            change_pct = item.get("f3", 0)
-            change = item.get("f4", 0)
-            result["markets"][name] = {
-                "code": code, "price": price,
-                "change": change, "change_pct": change_pct,
+            markets[name] = {
+                "code": code, "price": item.get("f2", 0),
+                "change": item.get("f4", 0), "change_pct": item.get("f3", 0),
             }
+        return markets
 
-        log_info(f"采集到 {len(result['markets'])} 个全球市场指标")
+    # 数据源2：新浪财经全球行情API
+    def try_sina():
+        symbols = "gb_dji,gb_ixic,gb_inx,hf_GC,hf_CL,fx_susdcnh"
+        url = f"https://hq.sinajs.cn/list={symbols}"
+        headers = {"Referer": "https://finance.sina.com.cn/"}
+        response = fetch_with_retry(url, headers=headers, timeout=(8, 15), retries=2, encoding='gbk')
+        if response is None:
+            return None
+        name_map = {
+            "gb_dji": "道琼斯", "gb_ixic": "纳斯达克", "gb_inx": "标普500",
+            "hf_GC": "COMEX黄金", "hf_CL": "WTI原油", "fx_susdcnh": "美元兑离岸人民币"
+        }
+        markets = {}
+        for line in response.text.split('\n'):
+            line = line.strip()
+            if not line or '=' not in line:
+                continue
+            var_part, val_part = line.split('=', 1)
+            symbol = var_part.replace('var hq_str_', '').strip()
+            name = name_map.get(symbol)
+            if not name:
+                continue
+            vals = val_part.strip('";').split(',')
+            if len(vals) < 3:
+                continue
+            try:
+                if symbol.startswith('gb_'):
+                    price = float(vals[1])
+                    change = float(vals[4]) if len(vals) > 4 else 0
+                    change_pct = float(vals[2]) if len(vals) > 2 else 0
+                elif symbol.startswith('hf_'):
+                    price = float(vals[0])
+                    change = float(vals[1]) if len(vals) > 1 else 0
+                    change_pct = float(vals[2]) if len(vals) > 2 else 0
+                else:
+                    price = float(vals[1]) if len(vals) > 1 else float(vals[0])
+                    change = 0
+                    change_pct = 0
+                markets[name] = {"code": symbol, "price": price, "change": change, "change_pct": change_pct}
+            except (ValueError, IndexError):
+                continue
+        return markets if markets else None
 
-    except Exception as e:
-        result["status"] = "error"
-        log_error(f"全球市场采集异常: {str(e)[:100]}")
+    # 数据源3：腾讯财经全球行情
+    def try_tencent():
+        symbols = "usDJI,usIXIC,usINX,hf_GC,hf_CL,fx_susdcnh"
+        url = f"https://qt.gtimg.cn/q={symbols}"
+        response = fetch_with_retry(url, timeout=(8, 15), retries=2, encoding='gbk')
+        if response is None:
+            return None
+        name_map = {
+            "usDJI": "道琼斯", "usIXIC": "纳斯达克", "usINX": "标普500",
+            "hf_GC": "COMEX黄金", "hf_CL": "WTI原油", "fx_susdcnh": "美元兑离岸人民币"
+        }
+        markets = {}
+        for line in response.text.split(';'):
+            line = line.strip()
+            if not line or '~' not in line:
+                continue
+            parts = line.split('~')
+            if len(parts) < 5:
+                continue
+            symbol = parts[0].split('=')[-1].strip('"') if '=' in parts[0] else parts[0]
+            name = name_map.get(symbol)
+            if not name:
+                continue
+            try:
+                price = float(parts[3]) if len(parts) > 3 else 0
+                change = float(parts[4]) if len(parts) > 4 else 0
+                change_pct = float(parts[5]) if len(parts) > 5 else 0
+                markets[name] = {"code": symbol, "price": price, "change": change, "change_pct": change_pct}
+            except (ValueError, IndexError):
+                continue
+        return markets if markets else None
 
+    # 按优先级尝试各数据源
+    sources = [
+        ("东方财富", try_eastmoney),
+        ("新浪财经", try_sina),
+        ("腾讯财经", try_tencent),
+    ]
+
+    for source_name, source_func in sources:
+        try:
+            log_info(f"尝试全球市场数据源: {source_name}")
+            markets = source_func()
+            if markets and len(markets) >= 3:
+                result["source"] = source_name
+                result["markets"] = markets
+                log_info(f"全球市场数据源 {source_name} 成功，{len(markets)}个指标")
+                return result
+            else:
+                log_warn(f"全球市场数据源 {source_name} 返回数据不足")
+        except Exception as e:
+            log_warn(f"全球市场数据源 {source_name} 异常: {str(e)[:60]}")
+        random_delay(0.5, 1.0)
+
+    result["status"] = "failed"
+    log_error("全球市场所有数据源均失败")
     return result
 
 
