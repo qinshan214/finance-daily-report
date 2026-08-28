@@ -1,15 +1,10 @@
 name: 每日财经日报
 
-# 触发条件
 on:
   schedule:
-    # 每天20:00执行（UTC时间12:00）
-    - cron: '0 12 * * *'
-    # 备份触发时间：20:05（如果第一次失败，5分钟后重试）
-    - cron: '5 12 * * *'
-    # 备份触发时间：20:10（如果前两次都失败，10分钟后再试）
-    - cron: '10 12 * * *'
-  # 支持手动触发
+    - cron: '0 12 * * *'   # 北京时间20:00
+    - cron: '5 12 * * *'   # 北京时间20:05（备份重试）
+    - cron: '10 12 * * *'  # 北京时间20:10（备份重试）
   workflow_dispatch:
     inputs:
       date:
@@ -17,14 +12,12 @@ on:
         required: false
         default: ''
 
-# 环境变量
 env:
   TZ: Asia/Shanghai
 
 jobs:
   generate-report:
     runs-on: ubuntu-latest
-    # 超时设置：15分钟
     timeout-minutes: 15
     
     steps:
@@ -47,13 +40,11 @@ jobs:
         run: |
           python -c "import requests; import bs4; print('依赖安装成功: requests', requests.__version__, ', beautifulsoup4', bs4.__version__)"
 
-      - name: 检查是否已成功执行（避免重复执行）
+      - name: 检查是否已成功执行
         id: check-status
         run: |
           DATE=$(date +%Y-%m-%d)
           STATUS_FILE="output/status_${DATE}.txt"
-          
-          # 如果状态文件存在且标记为成功，跳过本次执行
           if [ -f "$STATUS_FILE" ] && grep -q "SUCCESS" "$STATUS_FILE"; then
             echo "今日日报已成功生成，跳过本次执行"
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -64,6 +55,18 @@ jobs:
       - name: 运行日报生成（带重试机制）
         if: steps.check-status.outputs.skip == 'false'
         uses: nick-fields/retry@v3
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_DOC_PERMISSION: ${{ secrets.FEISHU_DOC_PERMISSION }}
+          FEISHU_DOC_COLLABORATOR_ID: ${{ secrets.FEISHU_DOC_COLLABORATOR_ID }}
+          FEISHU_DOC_COLLABORATOR_TYPE: ${{ secrets.FEISHU_DOC_COLLABORATOR_TYPE }}
+          FEISHU_DOC_COLLABORATOR_PERM: ${{ secrets.FEISHU_DOC_COLLABORATOR_PERM }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
         with:
           max_attempts: 3
           retry_on: error
@@ -77,49 +80,26 @@ jobs:
             
             echo "开始生成日报: $DATE"
             
-            # 步骤1：数据采集
             echo "========== 步骤1：数据采集 =========="
             python3 scripts/collect_data.py --date $DATE --output output/data_${DATE}.json
             
-            # 步骤2：日报生成
             echo "========== 步骤2：日报生成 =========="
             python3 scripts/generate_report.py --data output/data_${DATE}.json --output output/report_${DATE}.md
             
-            # 步骤3：飞书文档创建
             echo "========== 步骤3：飞书文档创建 =========="
-            export FEISHU_APP_ID="${{ secrets.FEISHU_APP_ID }}"
-            export FEISHU_APP_SECRET="${{ secrets.FEISHU_APP_SECRET }}"
-            export FEISHU_DOC_PERMISSION="${{ secrets.FEISHU_DOC_PERMISSION }}"
-            export FEISHU_DOC_COLLABORATOR_ID="${{ secrets.FEISHU_DOC_COLLABORATOR_ID }}"
-            export FEISHU_DOC_COLLABORATOR_TYPE="${{ secrets.FEISHU_DOC_COLLABORATOR_TYPE }}"
-            export FEISHU_DOC_COLLABORATOR_PERM="${{ secrets.FEISHU_DOC_COLLABORATOR_PERM }}"
-            
-            DOC_RESULT=$(python3 scripts/create_feishu_doc.py \
-              --title "财经日报-${DATE}" \
-              --content-file output/report_${DATE}.md)
-            
+            DOC_RESULT=$(python3 scripts/create_feishu_doc.py --title "财经日报-${DATE}" --content-file output/report_${DATE}.md)
             echo "$DOC_RESULT"
             DOC_URL=$(echo "$DOC_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])" 2>/dev/null || echo "")
+            echo "飞书文档链接: $DOC_URL"
             
-            # 步骤4：邮件推送
             echo "========== 步骤4：邮件推送 =========="
-            export SMTP_SERVER="${{ secrets.SMTP_SERVER }}"
-            export SMTP_PORT="${{ secrets.SMTP_PORT }}"
-            export SMTP_USER="${{ secrets.SMTP_USER }}"
-            export SMTP_PASSWORD="${{ secrets.SMTP_PASSWORD }}"
+            python3 scripts/send_email.py --to "$MAIL_TO" --date $DATE --doc-url "$DOC_URL" --attach output/report_${DATE}.md
             
-            python3 scripts/send_email.py \
-              --to "${{ secrets.MAIL_TO }}" \
-              --date $DATE \
-              --doc-url "$DOC_URL" \
-              --attach output/report_${DATE}.md
-            
-            # 标记执行成功
             echo "SUCCESS" > output/status_${DATE}.txt
             echo "日报生成完成: $DATE"
             echo "飞书文档: $DOC_URL"
 
-      - name: 上传产物（日报和数据）
+      - name: 上传产物
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -128,17 +108,4 @@ jobs:
             output/report_*.md
             output/data_*.json
             output/status_*.txt
-            logs/
           retention-days: 30
-
-      - name: 失败通知（飞书消息）
-        if: failure()
-        run: |
-          echo "日报生成失败，请检查日志"
-          # 这里可以添加飞书/邮件通知逻辑
-          
-      - name: 成功通知
-        if: success()
-        run: |
-          echo "日报生成成功！"
-          echo "查看执行日志: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
