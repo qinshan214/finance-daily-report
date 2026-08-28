@@ -192,7 +192,9 @@ def call_ai_api(prompt):
         log("INFO", f"正在调用AI API（模型: {AI_MODEL}，最大输出: {MAX_OUTPUT_TOKENS} tokens）...")
         start_time = time.time()
 
-        resp = requests.post(AI_API_URL, headers=headers, json=payload, timeout=AI_TIMEOUT)
+        # 禁用代理，避免本地代理环境导致连接失败
+        no_proxy = {"http": None, "https": None}
+        resp = requests.post(AI_API_URL, headers=headers, json=payload, timeout=AI_TIMEOUT, proxies=no_proxy)
         elapsed = time.time() - start_time
 
         if resp.status_code == 200:
