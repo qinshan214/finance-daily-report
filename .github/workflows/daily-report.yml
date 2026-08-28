@@ -25,13 +25,16 @@ jobs:
         env:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          EMAIL_TO: ${{ secrets.MAIL_TO }}
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-          FEISHU_MEMBER_ID: ${{ secrets.FEISHU_MEMBER_ID }}
+          FEISHU_MEMBER_ID: ${{ secrets.FEISHU_DOC_COLLABORATOR_ID }}
+          FEISHU_MEMBER_ID_TYPE: ${{ secrets.FEISHU_DOC_COLLABORATOR_TYPE }}
           AI_ENABLE_REFINE: ${{ secrets.AI_ENABLE_REFINE }}
-          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
           AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
-          AI_MODEL: ${{ secrets.AI_MODEL }}
+          AI_MODEL: ${{ secrets.DOUBAO_MODEL }}
           AI_TIMEOUT: ${{ secrets.AI_TIMEOUT }}
         run: python3 scripts/run_daily.py
