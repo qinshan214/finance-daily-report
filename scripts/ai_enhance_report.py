@@ -28,8 +28,8 @@ from datetime import datetime
 
 # AI API配置（从环境变量读取）
 AI_API_KEY = os.environ.get("DOUBAO_API_KEY", "")
-AI_API_URL = os.environ.get("DOUBAO_API_URL", "https://ark.cn-beijing.volces.com/api/v3/chat/completions")
-AI_MODEL = os.environ.get("DOUBAO_MODEL", "doubao-seed-1-6-250615")
+AI_API_URL = os.environ.get("DOUBAO_API_URL", "") or "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+AI_MODEL = os.environ.get("DOUBAO_MODEL", "") or "doubao-seed-1-6-250615"
 
 # 输出限制
 MAX_OUTPUT_TOKENS = 1500  # 限制AI输出长度，减少token消耗
