@@ -28,8 +28,21 @@ from datetime import datetime
 
 # AI API配置（从环境变量读取）
 AI_API_KEY = os.environ.get("DOUBAO_API_KEY", "")
-AI_API_URL = os.environ.get("DOUBAO_API_URL", "") or "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 AI_MODEL = os.environ.get("DOUBAO_MODEL", "") or "doubao-seed-1-6-250615"
+
+# API URL配置：优先使用代理地址，其次使用自定义地址，最后使用默认地址
+AI_PROXY_URL = os.environ.get("DOUBAO_API_PROXY", "")
+AI_CUSTOM_URL = os.environ.get("DOUBAO_API_URL", "")
+DEFAULT_API_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+
+if AI_PROXY_URL:
+    # 使用Cloudflare Workers代理地址
+    AI_API_URL = AI_PROXY_URL.rstrip('/') + "/api/v3/chat/completions"
+    log("INFO", f"使用代理地址: {AI_API_URL}")
+elif AI_CUSTOM_URL:
+    AI_API_URL = AI_CUSTOM_URL
+else:
+    AI_API_URL = DEFAULT_API_URL
 
 # 输出限制
 MAX_OUTPUT_TOKENS = 1000  # 限制AI输出长度，减少token消耗和生成时间

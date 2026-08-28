@@ -92,6 +92,7 @@ jobs:
           MAIL_TO: ${{ secrets.MAIL_TO }}
           DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
           DOUBAO_API_URL: ${{ secrets.DOUBAO_API_URL }}
+          DOUBAO_API_PROXY: ${{ secrets.DOUBAO_API_PROXY }}
           DOUBAO_MODEL: ${{ secrets.DOUBAO_MODEL }}
         run: |
           DATE=${{ github.event.inputs.date }}
