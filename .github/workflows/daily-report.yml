@@ -1,170 +1,37 @@
 name: 每日财经日报
-
 on:
-  schedule:
-    - cron: '0 12 * * *'   # 北京时间20:00
-    - cron: '5 12 * * *'   # 北京时间20:05（备份重试）
-    - cron: '10 12 * * *'  # 北京时间20:10（备份重试）
   workflow_dispatch:
-    inputs:
-      date:
-        description: '指定日期（YYYY-MM-DD），默认为今天'
-        required: false
-        default: ''
-
-env:
-  TZ: Asia/Shanghai
+  schedule:
+    - cron: '0 12 * * *'
 
 jobs:
-  generate-report:
+  run-report:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    
     steps:
-      - name: 检出代码
+      - name: checkout code
         uses: actions/checkout@v4
 
-      - name: 设置Python环境
+      - name: setup python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.11"
 
-      - name: 安装依赖
+      - name: install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          mkdir -p output logs
 
-      - name: 验证依赖安装
-        run: |
-          python -c "import requests; import bs4; print('依赖安装成功: requests', requests.__version__, ', beautifulsoup4', bs4.__version__)"
-
-      - name: 检查是否已成功执行
-        id: check-status
-        run: |
-          DATE=$(date +%Y-%m-%d)
-          STATUS_FILE="output/status_${DATE}.txt"
-          if [ -f "$STATUS_FILE" ] && grep -q "SUCCESS" "$STATUS_FILE"; then
-            echo "今日日报已成功生成，跳过本次执行"
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: 测试飞书API连通性
-        if: steps.check-status.outputs.skip == 'false'
+      - name: run daily report task
         env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
-          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-        run: |
-          echo "测试飞书API连通性..."
-          echo "APP_ID: ${FEISHU_APP_ID:0:5}... (长度: ${#FEISHU_APP_ID})"
-          echo "APP_SECRET: ${FEISHU_APP_SECRET:0:5}... (长度: ${#FEISHU_APP_SECRET})"
-          
-          # 使用curl测试飞书API
-          RESPONSE=$(curl -s -X POST "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal" \
-            -H "Content-Type: application/json" \
-            -d "{\"app_id\":\"$FEISHU_APP_ID\",\"app_secret\":\"$FEISHU_APP_SECRET\"}")
-          
-          echo "API响应: $RESPONSE"
-          
-          # 检查是否成功获取token
-          if echo "$RESPONSE" | grep -q '"tenant_access_token"'; then
-            echo "✅ 飞书API连通性测试成功"
-          else
-            echo "❌ 飞书API连通性测试失败"
-          fi
-
-      - name: 运行日报生成（AI优先，自动降级）
-        if: steps.check-status.outputs.skip == 'false'
-        env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
-          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-          FEISHU_DOC_PERMISSION: ${{ secrets.FEISHU_DOC_PERMISSION }}
-          FEISHU_DOC_COLLABORATOR_ID: ${{ secrets.FEISHU_DOC_COLLABORATOR_ID }}
-          FEISHU_DOC_COLLABORATOR_TYPE: ${{ secrets.FEISHU_DOC_COLLABORATOR_TYPE }}
-          FEISHU_DOC_COLLABORATOR_PERM: ${{ secrets.FEISHU_DOC_COLLABORATOR_PERM }}
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          MAIL_TO: ${{ secrets.MAIL_TO }}
-          DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
-          DOUBAO_API_URL: ${{ secrets.DOUBAO_API_URL }}
-          DOUBAO_API_PROXY: ${{ secrets.DOUBAO_API_PROXY }}
-          DOUBAO_MODEL: ${{ secrets.DOUBAO_MODEL }}
-        run: |
-          DATE=${{ github.event.inputs.date }}
-          if [ -z "$DATE" ]; then
-            DATE=$(date +%Y-%m-%d)
-          fi
-          
-          echo "开始生成日报: $DATE"
-          echo "FEISHU_APP_ID: ${FEISHU_APP_ID:0:5}... (长度: ${#FEISHU_APP_ID})"
-          echo "DOUBAO_API_KEY: ${DOUBAO_API_KEY:0:5}... (长度: ${#DOUBAO_API_KEY})"
-          
-          echo "========== 步骤1：数据采集 =========="
-          python3 scripts/collect_data.py --date $DATE --output output/data_${DATE}.json || echo "数据采集失败，继续执行"
-          
-          echo "========== 步骤2：生成基础日报（纯脚本版） =========="
-          python3 scripts/generate_report.py --data output/data_${DATE}.json --output output/report_base_${DATE}.md || echo "基础日报生成失败，继续执行"
-          
-          echo "========== 步骤3：AI优化（AI优先，失败自动降级） =========="
-          # 复制基础日报作为默认最终版
-          cp output/report_base_${DATE}.md output/report_${DATE}.md
-          
-          # 尝试AI优化（失败不中断，自动降级）
-          if [ -n "$DOUBAO_API_KEY" ]; then
-            echo "检测到DOUBAO_API_KEY，尝试AI优化..."
-            AI_RESULT=$(python3 scripts/ai_enhance_report.py \
-              --date $DATE \
-              --base-report output/report_base_${DATE}.md \
-              --data output/data_${DATE}.json \
-              --output output/report_ai_${DATE}.md 2>&1) || echo "AI优化失败，将使用纯脚本版"
-            
-            echo "AI_RESULT: $AI_RESULT"
-            
-            # 检查AI是否成功
-            AI_ENHANCED=$(echo "$AI_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ai_enhanced', False))" 2>/dev/null || echo "False")
-            
-            if [ "$AI_ENHANCED" = "True" ] && [ -f "output/report_ai_${DATE}.md" ]; then
-              echo "✅ AI优化成功，使用AI增强版日报"
-              cp output/report_ai_${DATE}.md output/report_${DATE}.md
-              REPORT_MODE="AI增强版"
-            else
-              echo "⚠️ AI优化失败或未启用，自动降级为纯脚本版"
-              REPORT_MODE="纯脚本版（降级）"
-            fi
-          else
-            echo "⚠️ 未设置DOUBAO_API_KEY，使用纯脚本版"
-            REPORT_MODE="纯脚本版"
-          fi
-          
-          echo "最终日报模式: $REPORT_MODE"
-          
-          echo "========== 步骤4：飞书文档创建 =========="
-          DOC_RESULT=$(python3 scripts/create_feishu_doc.py --title "财经日报-${DATE}（${REPORT_MODE}）" --content-file output/report_${DATE}.md 2>&1) || echo "飞书文档创建失败"
-          echo "DOC_RESULT: $DOC_RESULT"
-          DOC_URL=$(echo "$DOC_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])" 2>/dev/null || echo "")
-          echo "飞书文档链接: $DOC_URL"
-          
-          echo "========== 步骤5：邮件推送 =========="
-          python3 scripts/send_email.py --to "$MAIL_TO" --date $DATE --doc-url "$DOC_URL" --attach output/report_${DATE}.md || echo "邮件发送失败，继续执行"
-          
-          echo "SUCCESS" > output/status_${DATE}.txt
-          echo "日报生成完成: $DATE"
-          echo "日报模式: $REPORT_MODE"
-          echo "飞书文档: $DOC_URL"
-
-      - name: 上传产物
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: finance-report-${{ github.run_id }}
-          path: |
-            output/report_*.md
-            output/data_*.json
-            output/status_*.txt
-            output/ai_cache/*.md
-          retention-days: 30
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_MEMBER_ID: ${{ secrets.FEISHU_MEMBER_ID }}
+          AI_ENABLE_REFINE: ${{ secrets.AI_ENABLE_REFINE }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
+          AI_MODEL: ${{ secrets.AI_MODEL }}
+          AI_TIMEOUT: ${{ secrets.AI_TIMEOUT }}
+        run: python3 scripts/run_daily.py
