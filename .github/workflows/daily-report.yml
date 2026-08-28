@@ -76,7 +76,7 @@ jobs:
             echo "❌ 飞书API连通性测试失败"
           fi
 
-      - name: 运行日报生成
+      - name: 运行日报生成（AI优先，自动降级）
         if: steps.check-status.outputs.skip == 'false'
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
@@ -90,6 +90,9 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
+          DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
+          DOUBAO_API_URL: ${{ secrets.DOUBAO_API_URL }}
+          DOUBAO_MODEL: ${{ secrets.DOUBAO_MODEL }}
         run: |
           DATE=${{ github.event.inputs.date }}
           if [ -z "$DATE" ]; then
@@ -98,25 +101,59 @@ jobs:
           
           echo "开始生成日报: $DATE"
           echo "FEISHU_APP_ID: ${FEISHU_APP_ID:0:5}... (长度: ${#FEISHU_APP_ID})"
-          echo "FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:0:5}... (长度: ${#FEISHU_APP_SECRET})"
+          echo "DOUBAO_API_KEY: ${DOUBAO_API_KEY:0:5}... (长度: ${#DOUBAO_API_KEY})"
           
           echo "========== 步骤1：数据采集 =========="
           python3 scripts/collect_data.py --date $DATE --output output/data_${DATE}.json || echo "数据采集失败，继续执行"
           
-          echo "========== 步骤2：日报生成 =========="
-          python3 scripts/generate_report.py --data output/data_${DATE}.json --output output/report_${DATE}.md || echo "日报生成失败，继续执行"
+          echo "========== 步骤2：生成基础日报（纯脚本版） =========="
+          python3 scripts/generate_report.py --data output/data_${DATE}.json --output output/report_base_${DATE}.md || echo "基础日报生成失败，继续执行"
           
-          echo "========== 步骤3：飞书文档创建 =========="
-          DOC_RESULT=$(python3 scripts/create_feishu_doc.py --title "财经日报-${DATE}" --content-file output/report_${DATE}.md 2>&1) || echo "飞书文档创建失败"
+          echo "========== 步骤3：AI优化（AI优先，失败自动降级） =========="
+          # 复制基础日报作为默认最终版
+          cp output/report_base_${DATE}.md output/report_${DATE}.md
+          
+          # 尝试AI优化（失败不中断，自动降级）
+          if [ -n "$DOUBAO_API_KEY" ]; then
+            echo "检测到DOUBAO_API_KEY，尝试AI优化..."
+            AI_RESULT=$(python3 scripts/ai_enhance_report.py \
+              --date $DATE \
+              --base-report output/report_base_${DATE}.md \
+              --data output/data_${DATE}.json \
+              --output output/report_ai_${DATE}.md 2>&1) || echo "AI优化失败，将使用纯脚本版"
+            
+            echo "AI_RESULT: $AI_RESULT"
+            
+            # 检查AI是否成功
+            AI_ENHANCED=$(echo "$AI_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ai_enhanced', False))" 2>/dev/null || echo "False")
+            
+            if [ "$AI_ENHANCED" = "True" ] && [ -f "output/report_ai_${DATE}.md" ]; then
+              echo "✅ AI优化成功，使用AI增强版日报"
+              cp output/report_ai_${DATE}.md output/report_${DATE}.md
+              REPORT_MODE="AI增强版"
+            else
+              echo "⚠️ AI优化失败或未启用，自动降级为纯脚本版"
+              REPORT_MODE="纯脚本版（降级）"
+            fi
+          else
+            echo "⚠️ 未设置DOUBAO_API_KEY，使用纯脚本版"
+            REPORT_MODE="纯脚本版"
+          fi
+          
+          echo "最终日报模式: $REPORT_MODE"
+          
+          echo "========== 步骤4：飞书文档创建 =========="
+          DOC_RESULT=$(python3 scripts/create_feishu_doc.py --title "财经日报-${DATE}（${REPORT_MODE}）" --content-file output/report_${DATE}.md 2>&1) || echo "飞书文档创建失败"
           echo "DOC_RESULT: $DOC_RESULT"
           DOC_URL=$(echo "$DOC_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])" 2>/dev/null || echo "")
           echo "飞书文档链接: $DOC_URL"
           
-          echo "========== 步骤4：邮件推送 =========="
+          echo "========== 步骤5：邮件推送 =========="
           python3 scripts/send_email.py --to "$MAIL_TO" --date $DATE --doc-url "$DOC_URL" --attach output/report_${DATE}.md || echo "邮件发送失败，继续执行"
           
           echo "SUCCESS" > output/status_${DATE}.txt
           echo "日报生成完成: $DATE"
+          echo "日报模式: $REPORT_MODE"
           echo "飞书文档: $DOC_URL"
 
       - name: 上传产物
@@ -128,4 +165,5 @@ jobs:
             output/report_*.md
             output/data_*.json
             output/status_*.txt
+            output/ai_cache/*.md
           retention-days: 30
