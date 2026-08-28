@@ -69,7 +69,11 @@ def get_tenant_access_token():
             log("INFO", "获取 tenant_access_token 成功")
             return token
         else:
-            log("ERROR", f"获取 token 失败: {data.get('msg', '未知错误')}")
+            log("ERROR", f"获取 token 失败: {data.get('msg', '未知错误')} (code={data.get('code')})")
+            log("ERROR", f"APP_ID repr: {repr(APP_ID)}")
+            log("ERROR", f"APP_SECRET repr: {repr(APP_SECRET[:10])}...")
+            log("ERROR", f"响应状态码: {resp.status_code}")
+            log("ERROR", f"响应内容: {resp.text[:300]}")
             return None
     except Exception as e:
         log("ERROR", f"获取 token 异常: {str(e)}")

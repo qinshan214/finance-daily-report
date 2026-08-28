@@ -52,6 +52,30 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: 测试飞书API连通性
+        if: steps.check-status.outputs.skip == 'false'
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: |
+          echo "测试飞书API连通性..."
+          echo "APP_ID: ${FEISHU_APP_ID:0:5}... (长度: ${#FEISHU_APP_ID})"
+          echo "APP_SECRET: ${FEISHU_APP_SECRET:0:5}... (长度: ${#FEISHU_APP_SECRET})"
+          
+          # 使用curl测试飞书API
+          RESPONSE=$(curl -s -X POST "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal" \
+            -H "Content-Type: application/json" \
+            -d "{\"app_id\":\"$FEISHU_APP_ID\",\"app_secret\":\"$FEISHU_APP_SECRET\"}")
+          
+          echo "API响应: $RESPONSE"
+          
+          # 检查是否成功获取token
+          if echo "$RESPONSE" | grep -q '"tenant_access_token"'; then
+            echo "✅ 飞书API连通性测试成功"
+          else
+            echo "❌ 飞书API连通性测试失败"
+          fi
+
       - name: 运行日报生成
         if: steps.check-status.outputs.skip == 'false'
         env:
