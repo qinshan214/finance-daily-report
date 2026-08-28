@@ -33,6 +33,10 @@ import random
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
 
+# 导入重试工具
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from utils import retry, retry_request, logger as utils_logger
+
 # ============================================
 # 配置
 # ============================================
