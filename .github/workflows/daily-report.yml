@@ -73,18 +73,18 @@ jobs:
           fi
           
           echo "开始生成日报: $DATE"
-          echo "FEISHU_APP_ID长度: ${#FEISHU_APP_ID}"
-          echo "FEISHU_APP_SECRET长度: ${#FEISHU_APP_SECRET}"
+          echo "FEISHU_APP_ID: ${FEISHU_APP_ID:0:5}... (长度: ${#FEISHU_APP_ID})"
+          echo "FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:0:5}... (长度: ${#FEISHU_APP_SECRET})"
           
           echo "========== 步骤1：数据采集 =========="
-          python3 scripts/collect_data.py --date $DATE --output output/data_${DATE}.json
+          python3 scripts/collect_data.py --date $DATE --output output/data_${DATE}.json || echo "数据采集失败，继续执行"
           
           echo "========== 步骤2：日报生成 =========="
-          python3 scripts/generate_report.py --data output/data_${DATE}.json --output output/report_${DATE}.md
+          python3 scripts/generate_report.py --data output/data_${DATE}.json --output output/report_${DATE}.md || echo "日报生成失败，继续执行"
           
           echo "========== 步骤3：飞书文档创建 =========="
-          DOC_RESULT=$(python3 scripts/create_feishu_doc.py --title "财经日报-${DATE}" --content-file output/report_${DATE}.md)
-          echo "$DOC_RESULT"
+          DOC_RESULT=$(python3 scripts/create_feishu_doc.py --title "财经日报-${DATE}" --content-file output/report_${DATE}.md 2>&1) || echo "飞书文档创建失败"
+          echo "DOC_RESULT: $DOC_RESULT"
           DOC_URL=$(echo "$DOC_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])" 2>/dev/null || echo "")
           echo "飞书文档链接: $DOC_URL"
           
