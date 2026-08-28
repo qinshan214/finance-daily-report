@@ -32,8 +32,8 @@ AI_API_URL = os.environ.get("DOUBAO_API_URL", "") or "https://ark.cn-beijing.vol
 AI_MODEL = os.environ.get("DOUBAO_MODEL", "") or "doubao-seed-1-6-250615"
 
 # 输出限制
-MAX_OUTPUT_TOKENS = 1500  # 限制AI输出长度，减少token消耗
-AI_TIMEOUT = 30  # AI调用超时时间
+MAX_OUTPUT_TOKENS = 1000  # 限制AI输出长度，减少token消耗和生成时间
+AI_TIMEOUT = 60  # AI调用超时时间（增加到60秒，适应GitHub Actions网络环境）
 
 # 缓存目录
 CACHE_DIR = "output/ai_cache"
