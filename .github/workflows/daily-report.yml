@@ -52,9 +52,8 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: 运行日报生成（带重试机制）
+      - name: 运行日报生成
         if: steps.check-status.outputs.skip == 'false'
-        uses: nick-fields/retry@v3
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -67,37 +66,34 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
-        with:
-          max_attempts: 3
-          retry_on: error
-          timeout_minutes: 10
-          retry_wait_seconds: 60
-          command: |
-            DATE=${{ github.event.inputs.date }}
-            if [ -z "$DATE" ]; then
-              DATE=$(date +%Y-%m-%d)
-            fi
-            
-            echo "开始生成日报: $DATE"
-            
-            echo "========== 步骤1：数据采集 =========="
-            python3 scripts/collect_data.py --date $DATE --output output/data_${DATE}.json
-            
-            echo "========== 步骤2：日报生成 =========="
-            python3 scripts/generate_report.py --data output/data_${DATE}.json --output output/report_${DATE}.md
-            
-            echo "========== 步骤3：飞书文档创建 =========="
-            DOC_RESULT=$(python3 scripts/create_feishu_doc.py --title "财经日报-${DATE}" --content-file output/report_${DATE}.md)
-            echo "$DOC_RESULT"
-            DOC_URL=$(echo "$DOC_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])" 2>/dev/null || echo "")
-            echo "飞书文档链接: $DOC_URL"
-            
-            echo "========== 步骤4：邮件推送 =========="
-            python3 scripts/send_email.py --to "$MAIL_TO" --date $DATE --doc-url "$DOC_URL" --attach output/report_${DATE}.md
-            
-            echo "SUCCESS" > output/status_${DATE}.txt
-            echo "日报生成完成: $DATE"
-            echo "飞书文档: $DOC_URL"
+        run: |
+          DATE=${{ github.event.inputs.date }}
+          if [ -z "$DATE" ]; then
+            DATE=$(date +%Y-%m-%d)
+          fi
+          
+          echo "开始生成日报: $DATE"
+          echo "FEISHU_APP_ID长度: ${#FEISHU_APP_ID}"
+          echo "FEISHU_APP_SECRET长度: ${#FEISHU_APP_SECRET}"
+          
+          echo "========== 步骤1：数据采集 =========="
+          python3 scripts/collect_data.py --date $DATE --output output/data_${DATE}.json
+          
+          echo "========== 步骤2：日报生成 =========="
+          python3 scripts/generate_report.py --data output/data_${DATE}.json --output output/report_${DATE}.md
+          
+          echo "========== 步骤3：飞书文档创建 =========="
+          DOC_RESULT=$(python3 scripts/create_feishu_doc.py --title "财经日报-${DATE}" --content-file output/report_${DATE}.md)
+          echo "$DOC_RESULT"
+          DOC_URL=$(echo "$DOC_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])" 2>/dev/null || echo "")
+          echo "飞书文档链接: $DOC_URL"
+          
+          echo "========== 步骤4：邮件推送 =========="
+          python3 scripts/send_email.py --to "$MAIL_TO" --date $DATE --doc-url "$DOC_URL" --attach output/report_${DATE}.md || echo "邮件发送失败，继续执行"
+          
+          echo "SUCCESS" > output/status_${DATE}.txt
+          echo "日报生成完成: $DATE"
+          echo "飞书文档: $DOC_URL"
 
       - name: 上传产物
         if: always()
